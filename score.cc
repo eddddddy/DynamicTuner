@@ -107,8 +107,8 @@ Score::NoteIter& Score::NoteIter::operator++() {
 }
 
 Note Score::NoteIter::operator*() const {
-    int duration = 0;
-    auto beginCopy{begin};
+    int duration = 1;
+    auto beginCopy{begin + 1};
     const EPitchFreq& pitch = it->first;
     while (beginCopy <= end) {
         auto find = (*beginCopy).find(pitch);
