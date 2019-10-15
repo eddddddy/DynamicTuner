@@ -1,7 +1,9 @@
 #include <iostream>
 #include <vector>
 #include <list>
+#include <unordered_map>
 #include <map>
+#include <unordered_set>
 #include <iterator>
 #include <algorithm>
 #include <utility>
@@ -10,11 +12,82 @@
 #include "pitch.h"
 #include "interval.h"
 #include "tunings.h"
+#include "hash.h"
 #include "algo.h"
 #include "score.h"
 
+// Helper function that returns true if dividend divided by divisor
+//   is congruent to other. Congruent in this case means offset by
+//   a factor of 2.
+// We rely on the fact that we won't get any false positives if an
+//   overflow occurs (we won't get any true negatives because the
+//   lowest 64 bits would still be the same).
+bool isQuotientCongruentTo(const Frac& dividend, const Frac& divisor, const Frac& other) {
+    unsigned long a = dividend.p * divisor.q * other.q;
+    unsigned long b = dividend.q * divisor.p * other.p;
+    if (a == 0 || b == 0) return true;
 
-std::map<Tuning, int> Algo::getValuesRec(const Tuning& fixed, std::list<EPitch> var) {
+    int actz = __builtin_ctzl(a);
+    int bctz = __builtin_ctzl(b);
+    if (actz > bctz) return a == (b << (actz - bctz));
+    else return b == (a << (bctz - actz));
+}
+
+// Returns a list of pairs with first element in fixed and second element in var
+//   representing the pairs to check when optimizing var tunings.
+std::list<std::pair<NoteTuning, EPitch>> findPairsToCheck(const Tuning& fixed, const std::list<EPitch>& var) {
+
+    static int unisonValue = Interval::getWeight(EPitch{Pitch::C, 4}, EPitch{Pitch::C, 4});
+
+    std::unordered_map<EPitch, std::list<NoteTuning>, Hash> varToFixed;
+    int currBestValue = -1;
+    for (const NoteTuning& f : fixed) {
+        for (const EPitch& v : var) {
+            int val = Interval::getWeight(f.pitch, v);
+            if (val > currBestValue) {
+                currBestValue = val;
+                varToFixed.clear();
+                varToFixed[v].emplace_back(f);
+            } else if (val == currBestValue) {
+                varToFixed[v].emplace_back(f);
+            }
+        }
+    }
+
+    std::list<std::pair<NoteTuning, EPitch>> bestPairs;
+    int currBestValue2 = -1;
+    for (const EPitch& v : var) {
+        for (const EPitch& w : var) {
+            if (!(w == v)) {
+                int val = Interval::getWeight(v, w);
+                if (val > currBestValue2) {
+                    currBestValue2 = val;
+                    bestPairs.clear();
+                    for (const NoteTuning& f : fixed) {
+                        bestPairs.emplace_back(std::pair<NoteTuning, EPitch>{f, v});
+                    }
+                } else if (val == currBestValue2) {
+                    for (const NoteTuning& f : fixed) {
+                        bestPairs.emplace_back(std::pair<NoteTuning, EPitch>{f, v});
+                    }
+                }
+            }
+        }
+    }
+
+    if (currBestValue > currBestValue2 || currBestValue == unisonValue) {
+        bestPairs.clear();
+        auto varToFixedList = *varToFixed.begin();
+        for (const NoteTuning& nt : varToFixedList.second) {
+            bestPairs.emplace_back(std::pair<NoteTuning, EPitch>(nt, varToFixedList.first));
+        }
+    }
+
+    return bestPairs;
+}
+
+std::map<Tuning, int> Algo::getValuesRec(const Tuning& fixed, std::list<EPitch> var,
+    std::unordered_map<EPitch, std::unordered_set<NoteTuning, Hash>, Hash> calculated) {
 
     if (var.empty()) {
         std::map<Tuning, int> m{};
@@ -25,7 +98,7 @@ std::map<Tuning, int> Algo::getValuesRec(const Tuning& fixed, std::list<EPitch> 
     if (fixed.isEmpty()) {
         EPitch pivot = *(var.begin());
         var.erase(var.begin());
-        std::map<Tuning, int> m = getValuesRec(Tuning{}.addNoteTuning(NoteTuning{pivot, Frac{1, 1}}), var);
+        std::map<Tuning, int> m = getValuesRec(Tuning{}.addNoteTuning(NoteTuning{pivot, Frac{1, 1}}), var, calculated);
         std::map<Tuning, int> mNew{};
         for (std::pair<Tuning, int> pair : m) {
             Tuning tuning = pair.first;
@@ -36,38 +109,38 @@ std::map<Tuning, int> Algo::getValuesRec(const Tuning& fixed, std::list<EPitch> 
     }
 
     std::map<Tuning, int> m{};
-    for (EPitch pitch : var) {
-        Tuning fixedCopy{fixed};
-        while (!fixedCopy.isEmpty()) {
-            NoteTuning relNoteTuning = *(fixedCopy.begin());
+    std::list<std::pair<NoteTuning, EPitch>> fixedVarPairs = findPairsToCheck(fixed, var);
+    while (!fixedVarPairs.empty()) {
 
-            std::list<EPitch> varCopy{var};
-            varCopy.erase(std::find(varCopy.begin(), varCopy.end(), pitch));
+        std::pair<NoteTuning, EPitch> pair = *fixedVarPairs.begin();
+        EPitch pitch = pair.second;
+        EPitch relPitch = pair.first.pitch;
 
-            EPitch relPitch = relNoteTuning.pitch;
-            Frac computedRatio = Interval{relPitch, pitch}.getIdealRatio() * relNoteTuning.tuning;
+        std::list<EPitch> varCopy{var};
+        varCopy.erase(std::find(varCopy.begin(), varCopy.end(), pitch));
 
-            int octaveOffset = pitch.octave - relPitch.octave + (pitch.pitch < relPitch.pitch ? -1 : 0);
-            computedRatio.adjust(octaveOffset);
+        Frac computedRatio = Interval::getIdealRatio(relPitch, pitch) * pair.first.tuning;
+        int octaveOffset = pitch.octave - relPitch.octave + (pitch.pitch < relPitch.pitch ? -1 : 0);
+        computedRatio.adjust(octaveOffset);
 
-            std::map<Tuning, int> mSub = getValuesRec(fixed + NoteTuning{pitch, computedRatio}, varCopy);
+        calculated[pitch].emplace(pair.first);
+        std::map<Tuning, int> mSub = getValuesRec(fixed + NoteTuning{pitch, computedRatio}, varCopy, calculated);
 
-            int valueToAdd = 0;
-            for (NoteTuning nt : fixed) {
-                Frac ideal = Interval{nt.pitch, pitch}.getIdealRatio().adjust();
-                if (ideal == (computedRatio / nt.tuning).adjust()) {
-                    valueToAdd += Interval{nt.pitch, pitch}.getWeight();
-                    fixedCopy.removeNoteTuning(nt);
-                } else if (ideal == (nt.tuning / computedRatio).adjust()) {
-                    valueToAdd += Interval{nt.pitch, pitch}.getWeight();
-                }
+        int valueToAdd = 0;
+        for (NoteTuning nt :fixed) {
+            Frac ideal = Interval::getIdealRatio(nt.pitch, pitch);
+            if (isQuotientCongruentTo(computedRatio, nt.tuning, ideal)) {
+                valueToAdd += Interval::getWeight(nt.pitch, pitch);
+                fixedVarPairs.remove(std::pair<NoteTuning, EPitch>{nt, pitch});
+            } else if (isQuotientCongruentTo(nt.tuning, computedRatio, ideal)) {
+                valueToAdd += Interval::getWeight(nt.pitch, pitch);
             }
+        }
 
-            for (std::pair<Tuning, int> pair : mSub) {
-                Tuning tuning = pair.first;
-                tuning.addNoteTuning(NoteTuning{pitch, computedRatio});
-                m[tuning] = pair.second + valueToAdd;
-            }
+        for (std::pair<Tuning, int> pair : mSub) {
+            Tuning tuning = pair.first;
+            tuning.addNoteTuning(NoteTuning{pitch, computedRatio});
+            m[tuning] = pair.second + valueToAdd;
         }
     }
 
@@ -199,7 +272,7 @@ std::vector<TuningSequence> Algo::getTunings(std::list<std::list<EPitch>> seq, i
         std::multimap<int, Tuning> next;
         next.insert(std::pair<int, Tuning>{pair.first, second});
 
-        std::vector<TuningSequence> bestTunings = getTuningsRec(next, std::list<std::list<EPitch>>{std::next(seq.begin(), 2), seq.end()}, value, 16);
+        std::vector<TuningSequence> bestTunings = getTuningsRec(next, std::list<std::list<EPitch>>{std::next(seq.begin(), 2), seq.end()}, value, 8);
 
         if (value > bestValue) {
             bestValue = value;
@@ -217,4 +290,3 @@ std::vector<TuningSequence> Algo::getTunings(std::list<std::list<EPitch>> seq, i
     if (val) *val = bestValue;
     return v;
 }
-

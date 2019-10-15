@@ -4,6 +4,10 @@
 #include <vector>
 #include <list>
 #include <map>
+#include <unordered_map>
+#include <unordered_set>
+
+#include "hash.h"
 
 struct EPitch;
 class Tuning;
@@ -13,17 +17,19 @@ class TuningSequence;
 namespace Algo {
 	// Contains the main algorithms for optimizing pitch frequencies
 
-	// Given a Tuning object that represents fixed pitches and a list of EPitch
-	//   objects that represents variable pitches, return a map containing every
-	//   possible way to tune the new pitches (as Tuning objects), mapping every
-	//   tuning to the value of that tuning. The value of a tuning is determined
-	//   (roughly) by summing the weights of all intervals that have the ideal
-	//   ratio between every pair of notes.
-	// The ratios in the new Tuning objects produced will be relative to the ratios
-	//   of the fixed Tuning given. If the fixed Tuning does not contain any pitches,
-	//   an arbitrary note in the variable pitches is chosen to be the baseline
-	//   pitch.
-    std::map<Tuning, int> getValuesRec(const Tuning& fixed, std::list<EPitch> var);
+    // Given a Tuning object that represents fixed pitches and a list of EPitch
+    //   objects that represents variable pitches, return a map containing every
+    //   possible way to tune the new pitches (as Tuning objects), mapping every
+    //   tuning to the value of that tuning. The value of a tuning is determined
+    //   (roughly) by summing the weights of all intervals that have the ideal
+    //   ratio between every pair of notes.
+    // The ratios in the new Tuning objects produced will be relative to the ratios
+    //   of the fixed Tuning given. If the fixed Tuning does not contain any pitches,
+    //   an arbitrary note in the variable pitches is chosen to be the baseline
+    //   pitch.
+    std::map<Tuning, int> getValuesRec(const Tuning& fixed, std::list<EPitch> var,
+        std::unordered_map<EPitch, std::unordered_set<NoteTuning, Hash>, Hash> calculated =
+        std::unordered_map<EPitch, std::unordered_set<NoteTuning, Hash>, Hash>());
 
 	// Given a Tuning object that represents fixed pitches and a list of EPitch
 	//   objects that represents variable pitches, return a multimap that maps
