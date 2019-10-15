@@ -2,21 +2,6 @@
 #include "pitch.h"
 #include "interval.h"
 
-enum class Interval::Int {
-    perfectUnison = 0,
-    minorSecond = 1,
-    majorSecond = 2,
-    minorThird = 3,
-    majorThird = 4,
-    perfectFourth = 5,
-    tritone = 6,
-    perfectFifth = 7,
-    minorSixth = 8,
-    majorSixth = 9,
-    minorSeventh = 10,
-    majorSeventh = 11
-};
-
 Frac Interval::idealRatios[12] = {
     Frac{1, 1}  ,
     Frac{16, 15},
@@ -32,16 +17,13 @@ Frac Interval::idealRatios[12] = {
     Frac{15, 8} 
 };
 
-int Interval::weights[12] = {1024, 2, 3, 8, 8, 32, 1, 32, 8, 8, 3, 2};
+int Interval::weights[12] = {65536, 4, 8, 64, 64, 1024, 1, 1024, 64, 64, 8, 4};
 
-Interval::Interval(const EPitch& ep1, const EPitch& ep2):
-	interval{static_cast<Int>((static_cast<int>(ep2.pitch) - static_cast<int>(ep1.pitch) + 12) % 12)} {}
-
-Frac Interval::getIdealRatio() {
-    return idealRatios[static_cast<int>(interval)];
+Frac Interval::getIdealRatio(const EPitch& ep1, const EPitch& ep2) {
+    return idealRatios[(static_cast<int>(ep2.pitch) - static_cast<int>(ep1.pitch) + 12) % 12];
 }
 
-int Interval::getWeight() {
-    return weights[static_cast<int>(interval)];
+int Interval::getWeight(const EPitch& ep1, const EPitch& ep2) {
+    return weights[(static_cast<int>(ep2.pitch) - static_cast<int>(ep1.pitch) + 12) % 12];
 }
 

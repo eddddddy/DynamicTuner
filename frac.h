@@ -9,6 +9,7 @@ class Frac {
 	//   between two pitches
     private:
         Frac& reduce();
+        Frac(unsigned long, unsigned long, bool);
 		
     public:
 		// The numerator and denominator, respectively. After initialization,
